@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin - Location Tracker</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+    <style>
+        .container {
+            max-width: 800px;
+        }
+
+        .config-section {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 2rem;
+            border: 1px solid #e2e8f0;
+        }
+
+        .config-title {
+            font-size: 1.25rem;
+            margin-bottom: 1rem;
+            color: #2b6cb0;
+        }
+    </style>
+</head>
+
+<body>
+    <div class="container">
+        <header class="admin-header">
+            <h1>Form Administration</h1>
+            <a href="/" target="_blank" style="text-decoration: none; color: #4a5568;">View Live Form &rarr;</a>
+        </header>
+
+        <form id="config-form">
+            <div class="config-section">
+                <h2 class="config-title">App Settings</h2>
+
+                <div class="field-wrapper">
+                    <label for="app-title">Page Title</label>
+                    <input type="text" id="app-title" name="app-title" required>
+                </div>
+
+                <div class="field-wrapper">
+                    <label for="gas-url">Google Apps Script URL (Web App)</label>
+                    <input type="text" id="gas-url" name="gas-url" placeholder="https://script.google.com/macros/s/...">
+                    <small style="color: #718096; display: block; margin-top: 0.5rem;">
+                        Deploy your GAS project as a Web App (execute as 'Me', access 'Anyone') and paste the URL here.
+                    </small>
+                </div>
+            </div>
+
+            <div class="config-section">
+                <h2 class="config-title">Form Fields</h2>
+                <div id="fields-container">
+                    <!-- Dynamic Field Editors -->
+                </div>
+
+                <button type="button" id="add-field-btn" style="width: auto;">+ Add Field</button>
+            </div>
+
+            <button type="submit" id="save-btn" style="margin-top: 1rem;">Save Configuration</button>
+        </form>
+
+        <div id="status-message" class="hidden"></div>
+    </div>
+
+    <!-- Template for new field -->
+    <template id="field-template">
+        <div class="field-editor">
+            <div style="display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 1rem; align-items: end;">
+                <div>
+                    <label>Label</label>
+                    <input type="text" class="field-label" placeholder="e.g. Name" required>
+                </div>
+                <div>
+                    <label>Type</label>
+                    <select class="field-type"
+                        style="width: 100%; padding: 0.75rem; border: 2px solid #e2e8f0; border-radius: 8px;">
+                        <option value="text">Text Input</option>
+                        <option value="email">Email</option>
+                        <option value="tel">Phone</option>
+                        <option value="number">Number</option>
+                        <option value="textarea">Multi-line Text</option>
+                    </select>
+                </div>
+                <div style="display: flex; align-items: center; margin-bottom: 15px;">
+                    <input type="checkbox" class="field-required" style="width: 20px; height: 20px;">
+                    <label style="margin: 0 0 0 8px;">Required</label>
+                </div>
+                <button type="button" class="delete-btn">Remove</button>
+            </div>
+            <input type="hidden" class="field-id">
+        </div>
+    </template>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const form = document.getElementById('config-form');
+            const fieldsContainer = document.getElementById('fields-container');
+            const addFieldBtn = document.getElementById('add-field-btn');
+            const fieldTemplate = document.getElementById('field-template');
+            const statusMessage = document.getElementById('status-message');
+
+            // Load Config
+            try {
+                const res = await fetch('/api/config');
+                const config = await res.json();
+
+                document.getElementById('app-title').value = config.title || '';
+                document.getElementById('gas-url').value = config.gas_url || '';
+
+                if (config.fields) {
+                    config.fields.forEach(field => addFieldEditor(field));
+                }
+            } catch (err) {
+                console.error("Failed to load config", err);
+            }
+
+            function addFieldEditor(field = null) {
+                const clone = fieldTemplate.content.cloneNode(true);
+                const wrapper = clone.querySelector('.field-editor');
+
+                const idInput = wrapper.querySelector('.field-id');
+                const labelInput = wrapper.querySelector('.field-label');
+                const typeInput = wrapper.querySelector('.field-type');
+                const requiredInput = wrapper.querySelector('.field-required');
+                const deleteBtn = wrapper.querySelector('.delete-btn');
+
+                if (field) {
+                    idInput.value = field.id;
+                    labelInput.value = field.label;
+                    typeInput.value = field.type;
+                    requiredInput.checked = field.required;
+                } else {
+                    idInput.value = 'field_' + Date.now();
+                }
+
+                deleteBtn.addEventListener('click', () => {
+                    wrapper.remove();
+                });
+
+                fieldsContainer.appendChild(wrapper);
+            }
+
+            addFieldBtn.addEventListener('click', () => {
+                addFieldEditor();
+            });
+
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const saveBtn = document.getElementById('save-btn');
+                saveBtn.disabled = true;
+                saveBtn.textContent = 'Saving...';
+
+                const newConfig = {
+                    title: document.getElementById('app-title').value,
+                    gas_url: document.getElementById('gas-url').value,
+                    fields: []
+                };
+
+                const editors = fieldsContainer.querySelectorAll('.field-editor');
+                editors.forEach(editor => {
+                    newConfig.fields.push({
+                        id: editor.querySelector('.field-id').value || 'field_' + Math.random().toString(36).substr(2, 9),
+                        label: editor.querySelector('.field-label').value,
+                        type: editor.querySelector('.field-type').value,
+                        required: editor.querySelector('.field-required').checked
+                    });
+                });
+
+                try {
+                    const res = await fetch('/api/config', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(newConfig)
+                    });
+
+                    if (res.ok) {
+                        statusMessage.textContent = 'Configuration saved successfully!';
+                        statusMessage.className = 'success';
+                        statusMessage.classList.remove('hidden');
+                        setTimeout(() => statusMessage.classList.add('hidden'), 3000);
+                    } else {
+                        throw new Error('Failed to save');
+                    }
+                } catch (err) {
+                    statusMessage.textContent = 'Error saving configuration.';
+                    statusMessage.className = 'error';
+                    statusMessage.classList.remove('hidden');
+                } finally {
+                    saveBtn.disabled = false;
+                    saveBtn.textContent = 'Save Configuration';
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>

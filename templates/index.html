@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Location Check-in</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1 id="form-title">Location Check-in</h1>
+            <p>Please complete the form below to submit your information.</p>
+        </header>
+
+        <form id="submission-form">
+            <div id="dynamic-fields">
+                <!-- Fields will be injected here -->
+            </div>
+
+            <div class="field-wrapper consent-wrapper">
+                <input type="checkbox" id="consent" name="consent" required>
+                <label for="consent">I consent to share my current location.</label>
+            </div>
+
+            <button type="submit" id="submit-btn">Submit</button>
+        </form>
+
+        <div id="status-message" class="hidden"></div>
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', async () => {
+            const form = document.getElementById('submission-form');
+            const dynamicFieldsContainer = document.getElementById('dynamic-fields');
+            const statusMessage = document.getElementById('status-message');
+            const titleElement = document.getElementById('form-title');
+
+            // Fetch configuration
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+                
+                if (config.title) {
+                    titleElement.textContent = config.title;
+                    document.title = config.title;
+                }
+
+                if (config.fields) {
+                    config.fields.forEach(field => {
+                        const wrapper = document.createElement('div');
+                        wrapper.className = 'field-wrapper';
+                        
+                        const label = document.createElement('label');
+                        label.htmlFor = field.id;
+                        label.textContent = field.label;
+                        if (field.required) {
+                            label.classList.add('required');
+                        }
+                        
+                        let input;
+                        if (field.type === 'textarea') {
+                            input = document.createElement('textarea');
+                            input.rows = 4;
+                        } else {
+                            input = document.createElement('input');
+                            input.type = field.type;
+                        }
+                        
+                        input.id = field.id;
+                        input.name = field.id;
+                        if (field.required) input.required = true;
+                        
+                        wrapper.appendChild(label);
+                        wrapper.appendChild(input);
+                        dynamicFieldsContainer.appendChild(wrapper);
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading config:', error);
+                statusMessage.textContent = 'Failed to load form configuration.';
+                statusMessage.className = 'error';
+                statusMessage.classList.remove('hidden');
+            }
+
+            // Handle submission
+            form.addEventListener('submit', async (e) => {
+                e.preventDefault();
+                const btn = document.getElementById('submit-btn');
+                btn.disabled = true;
+                btn.textContent = 'Processing...';
+                statusMessage.classList.add('hidden');
+
+                const consent = document.getElementById('consent').checked;
+                if (!consent) {
+                    alert('You must consent to location sharing to proceed.');
+                    btn.disabled = false;
+                    btn.textContent = 'Submit';
+                    return;
+                }
+
+                const formData = {};
+                const inputs = form.querySelectorAll('input:not([type="checkbox"]), textarea');
+                inputs.forEach(input => {
+                    formData[input.name] = input.value;
+                });
+
+                // Get Location
+                if ('geolocation' in navigator) {
+                    navigator.geolocation.getCurrentPosition(async (position) => {
+                        formData.latitude = position.coords.latitude;
+                        formData.longitude = position.coords.longitude;
+                        formData.accuracy = position.coords.accuracy;
+                        formData.timestamp = new Date().toISOString();
+
+                        await submitData(formData);
+                    }, (error) => {
+                        console.error('Geolocation error:', error);
+                        statusMessage.textContent = 'Unable to retrieve location. Please allow location access.';
+                        statusMessage.className = 'error';
+                        statusMessage.classList.remove('hidden');
+                        btn.disabled = false;
+                        btn.textContent = 'Submit';
+                    });
+                } else {
+                    statusMessage.textContent = 'Geolocation is not supported by your browser.';
+                    statusMessage.className = 'error';
+                    statusMessage.classList.remove('hidden');
+                    btn.disabled = false;
+                    btn.textContent = 'Submit';
+                }
+            });
+
+            async function submitData(data) {
+                try {
+                    const response = await fetch('/api/submit', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify(data)
+                    });
+
+                    const result = await response.json();
+                    
+                    if (result.status === 'success') {
+                        statusMessage.textContent = 'Submission successful!';
+                        statusMessage.className = 'success';
+                        statusMessage.classList.remove('hidden');
+                        form.reset();
+                    } else {
+                        throw new Error(result.message || 'Unknown error');
+                    }
+                } catch (error) {
+                    console.error('Submission error:', error);
+                    statusMessage.textContent = 'Submission failed: ' + error.message;
+                    statusMessage.className = 'error';
+                    statusMessage.classList.remove('hidden');
+                } finally {
+                    const btn = document.getElementById('submit-btn');
+                    btn.disabled = false;
+                    btn.textContent = 'Submit';
+                }
+            }
+        });
+    </script>
+</body>
+</html>
